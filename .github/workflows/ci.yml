@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_ENV: development
+  JWT_SECRET: ci-test-secret-key-minimum-8
+  MONGO_URL: mongodb://localhost:27017/gather-test
+  REDIS_URL: redis://localhost:6379
+  GATEWAY_PORT: 4000
+  WS_PORT: 4001
+  MAP_PORT: 4004
+  CORS_ORIGIN: http://localhost:3000
+
+jobs:
+  # ── Job 1: Lint & Typecheck ──────────────────────────────
+  quality:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.2.19"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck all packages
+        run: bun run typecheck
+
+      - name: Lint web app
+        run: bun run lint
+
+  # ── Job 2: Build ─────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.2.19"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build all packages & apps
+        run: bun run build
+
+  # ── Job 3: Health check (spin up services, hit /health) ──
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: "1.2.19"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # ── Start all three backend services in background ──
+      - name: Start gateway-service
+        run: bun run --filter @gather/gateway-service dev &
+
+      - name: Start map-service
+        run: bun run --filter @gather/map-service dev &
+
+      - name: Start ws-service
+        run: bun run --filter @gather/ws-service dev &
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services to start..."
+          for i in $(seq 1 30); do
+            GATEWAY=$(curl -sf http://localhost:4000/health 2>/dev/null || true)
+            MAP=$(curl -sf http://localhost:4004/health 2>/dev/null || true)
+            WS=$(curl -sf http://localhost:4001/health 2>/dev/null || true)
+            if [ -n "$GATEWAY" ] && [ -n "$MAP" ] && [ -n "$WS" ]; then
+              echo "All services are up!"
+              break
+            fi
+            echo "Attempt $i/30 - waiting 2s..."
+            sleep 2
+          done
+
+      # ── Hit health endpoints ──
+      - name: Gateway health check
+        run: |
+          RESPONSE=$(curl -sf http://localhost:4000/health)
+          echo "Gateway: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"ok":true' || (echo "FAIL: Gateway health check" && exit 1)
+
+      - name: Map-service health check
+        run: |
+          RESPONSE=$(curl -sf http://localhost:4004/health)
+          echo "Map-service: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"ok":true' || (echo "FAIL: Map-service health check" && exit 1)
+
+      - name: WS-service health check
+        run: |
+          RESPONSE=$(curl -sf http://localhost:4001/health)
+          echo "WS-service: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"ok":true' || (echo "FAIL: WS-service health check" && exit 1)
+
+      # ── Smoke test: signup → login → auth'd endpoint ──
+      - name: Smoke test - signup
+        run: |
+          RESPONSE=$(curl -sf -X POST http://localhost:4000/auth/signup \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@test.com","password":"testpass123","name":"CI Bot"}')
+          echo "Signup: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"token"' || (echo "FAIL: Signup" && exit 1)
+          # Save token for next steps
+          echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4 > /tmp/ci_token.txt
+
+      - name: Smoke test - login
+        run: |
+          RESPONSE=$(curl -sf -X POST http://localhost:4000/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"ci@test.com","password":"testpass123"}')
+          echo "Login: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"token"' || (echo "FAIL: Login" && exit 1)
+
+      - name: Smoke test - authenticated /users/me
+        run: |
+          TOKEN=$(cat /tmp/ci_token.txt)
+          RESPONSE=$(curl -sf http://localhost:4000/users/me \
+            -H "Authorization: Bearer $TOKEN")
+          echo "Get me: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"user"' || (echo "FAIL: /users/me" && exit 1)
+
+      - name: Smoke test - create org
+        run: |
+          TOKEN=$(cat /tmp/ci_token.txt)
+          RESPONSE=$(curl -sf -X POST http://localhost:4000/orgs \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $TOKEN" \
+            -d '{"name":"CI Org","slug":"ci-org"}')
+          echo "Create org: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"org"' || (echo "FAIL: Create org" && exit 1)
+
+      - name: Smoke test - create map (authenticated)
+        run: |
+          TOKEN=$(cat /tmp/ci_token.txt)
+          RESPONSE=$(curl -sf -X POST http://localhost:4004/maps \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $TOKEN" \
+            -d '{"organizationId":"test","name":"CI Map","width":4,"height":4,"tiles":[[{"type":"wall"},{"type":"wall"},{"type":"wall"},{"type":"wall"}],[{"type":"wall"},{"type":"floor"},{"type":"floor"},{"type":"wall"}],[{"type":"wall"},{"type":"floor"},{"type":"floor"},{"type":"wall"}],[{"type":"wall"},{"type":"wall"},{"type":"wall"},{"type":"wall"}]],"spawnPoint":{"x":1,"y":1}}')
+          echo "Create map: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"map"' || (echo "FAIL: Create map" && exit 1)
+
+      - name: Smoke test - map-service rejects unauthenticated
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4004/maps?organizationId=test)
+          echo "Unauthenticated map request: HTTP $HTTP_CODE"
+          [ "$HTTP_CODE" = "401" ] || (echo "FAIL: Expected 401, got $HTTP_CODE" && exit 1)
