@@ -5,7 +5,7 @@ import { useMapStore } from "../../stores/map";
 import { usePresenceStore } from "../../stores/presence";
 import { useAuthStore } from "../../stores/auth";
 import { connectSocket, getSocket, disconnectSocket } from "../../lib/ws";
-import { getMap } from "../../lib/api";
+import { getMap, getMapMessages } from "../../lib/api";
 import { useChatStore } from "../../stores/chat";
 
 const TILE_SIZE = 32;
@@ -28,6 +28,7 @@ export function MapCanvas({ mapId }: { mapId: string }) {
   const localPosition = usePresenceStore((s) => s.localPosition);
   const setLocalPosition = usePresenceStore((s) => s.setLocalPosition);
   const addMessage = useChatStore((s) => s.addMessage);
+  const setMessages = useChatStore((s) => s.setMessages);
   const lastMoveRef = useRef(0);
 
   const userId = user?.id || user?._id || "";
@@ -41,6 +42,27 @@ export function MapCanvas({ mapId }: { mapId: string }) {
       })
       .catch(() => setCurrentMap(null));
   }, [mapId, setCurrentMap, setLocalPosition]);
+
+  useEffect(() => {
+    getMapMessages(mapId, undefined, 100)
+      .then((data) => {
+        const history = (data.messages || []).map((msg: any) => ({
+          id: msg.id || msg._id,
+          senderId: msg.senderId,
+          senderName: msg.senderName,
+          content: msg.content,
+          recipientId: msg.recipientId || undefined,
+          type: msg.type,
+          mentions: msg.mentions || [],
+          createdAt: msg.createdAt,
+          timestamp: msg.createdAt ? new Date(msg.createdAt).getTime() : Date.now()
+        }));
+        setMessages(history);
+      })
+      .catch(() => {
+        setMessages([]);
+      });
+  }, [mapId, setMessages]);
 
   // Connect to WS and join room
   useEffect(() => {
@@ -66,12 +88,18 @@ export function MapCanvas({ mapId }: { mapId: string }) {
       removePlayer(uid);
     });
 
+    socket.on("player:status-changed", ({ userId: uid, status }) => {
+      updatePlayer({ userId: uid, status });
+    });
     socket.on("player:status:changed", ({ userId: uid, status }) => {
       updatePlayer({ userId: uid, status });
     });
 
     socket.on("chat:received", (msg) => {
-      addMessage(msg);
+      addMessage({
+        ...msg,
+        timestamp: msg.timestamp || (msg.createdAt ? new Date(msg.createdAt).getTime() : Date.now())
+      });
     });
 
     return () => {
@@ -79,6 +107,7 @@ export function MapCanvas({ mapId }: { mapId: string }) {
       socket.off("player:joined");
       socket.off("player:moved");
       socket.off("player:left");
+      socket.off("player:status-changed");
       socket.off("player:status:changed");
       socket.off("chat:received");
       disconnectSocket();

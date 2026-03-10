@@ -19,7 +19,7 @@ function LoginForm() {
     setError(null);
     try {
       const data = await login(email, password);
-      setAuth(data.token, data.user);
+      setAuth(data.token || data.accessToken, data.user, data.refreshToken || null);
       router.push(returnTo || "/dashboard");
     } catch (err: any) {
       setError(err.message || "Login failed");

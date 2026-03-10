@@ -58,6 +58,60 @@
         "typescript": "^5.4.5",
       },
     },
+    "apps/media-service": {
+      "name": "@gather/media-service",
+      "version": "0.0.1",
+      "dependencies": {
+        "@gather/config": "*",
+        "@gather/utils": "*",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "helmet": "^7.1.0",
+      },
+      "devDependencies": {
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "bun-types": "^1.3.9",
+        "typescript": "^5.4.5",
+      },
+    },
+    "apps/ai-service": {
+      "name": "@gather/ai-service",
+      "version": "0.0.1",
+      "dependencies": {
+        "@gather/config": "*",
+        "@gather/utils": "*",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "helmet": "^7.1.0",
+      },
+      "devDependencies": {
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "bun-types": "^1.3.9",
+        "typescript": "^5.4.5",
+      },
+    },
+    "apps/notification-service": {
+      "name": "@gather/notification-service",
+      "version": "0.0.1",
+      "dependencies": {
+        "@gather/config": "*",
+        "@gather/utils": "*",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "helmet": "^7.1.0",
+      },
+      "devDependencies": {
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "bun-types": "^1.3.9",
+        "typescript": "^5.4.5",
+      },
+    },
     "apps/web": {
       "name": "@gather/web",
       "version": "0.0.1",
@@ -145,9 +199,15 @@
 
     "@gather/db": ["@gather/db@workspace:packages/db"],
 
+    "@gather/ai-service": ["@gather/ai-service@workspace:apps/ai-service"],
+
     "@gather/gateway-service": ["@gather/gateway-service@workspace:apps/gateway-service"],
 
     "@gather/map-service": ["@gather/map-service@workspace:apps/map-service"],
+
+    "@gather/media-service": ["@gather/media-service@workspace:apps/media-service"],
+
+    "@gather/notification-service": ["@gather/notification-service@workspace:apps/notification-service"],
 
     "@gather/shared-types": ["@gather/shared-types@workspace:packages/shared-types"],
 

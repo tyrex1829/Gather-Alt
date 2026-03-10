@@ -4,6 +4,9 @@ export type JwtPayload = {
   userId: string;
   email: string;
   name?: string;
+  tokenVersion?: number;
+  type?: "access" | "refresh";
+  service?: string;
 };
 
 export function verifyJwt(token: string, secret: string): JwtPayload {
@@ -19,6 +22,9 @@ export function authMiddleware(jwtSecret: string) {
     const token = auth.replace("Bearer ", "");
     try {
       const payload = verifyJwt(token, jwtSecret);
+      if (payload.type && payload.type !== "access") {
+        return next(new AppError("Invalid token", 401));
+      }
       req.user = payload;
       next();
     } catch {

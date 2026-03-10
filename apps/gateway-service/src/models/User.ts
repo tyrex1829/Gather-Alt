@@ -8,7 +8,8 @@ const UserSchema = new Schema({
   organizationIds: [{ type: String }],
   role: { type: String, default: "member" },
   designation: { type: String },
-  status: { type: String, default: "available" }
+  status: { type: String, default: "available" },
+  refreshTokenVersion: { type: Number, default: 0 }
 }, { timestamps: true });
 
 export const UserModel = mongoose.model("User", UserSchema);

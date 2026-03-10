@@ -94568,12 +94568,145 @@ var EnvSchema = exports_external.object({
   REDIS_URL: exports_external.string().url().optional(),
   GATEWAY_PORT: exports_external.coerce.number().default(4000),
   WS_PORT: exports_external.coerce.number().default(4001),
+  MEDIA_PORT: exports_external.coerce.number().default(4002),
+  AI_PORT: exports_external.coerce.number().default(4003),
   MAP_PORT: exports_external.coerce.number().default(4004),
+  NOTIFICATION_PORT: exports_external.coerce.number().default(4005),
   CORS_ORIGIN: exports_external.string().default("http://localhost:3000")
 });
 function loadEnv(env) {
   return EnvSchema.parse(env);
 }
+
+// ../../packages/shared-types/src/index.ts
+var OrgRole = exports_external.enum(["owner", "admin", "member", "viewer"]);
+var UserStatus = exports_external.enum(["available", "busy", "away", "in-meeting"]);
+var UserSchema = exports_external.object({
+  _id: exports_external.string().optional(),
+  email: exports_external.string().email(),
+  name: exports_external.string().min(1),
+  avatarCharacterId: exports_external.string().optional(),
+  organizationIds: exports_external.array(exports_external.string()).default([]),
+  role: OrgRole.default("member"),
+  designation: exports_external.string().optional(),
+  status: UserStatus.default("available"),
+  refreshTokenVersion: exports_external.number().int().nonnegative().default(0),
+  createdAt: exports_external.coerce.date().optional(),
+  updatedAt: exports_external.coerce.date().optional()
+});
+var OrganizationMemberSchema = exports_external.object({
+  userId: exports_external.string(),
+  role: OrgRole,
+  joinedAt: exports_external.coerce.date().optional()
+});
+var OrganizationSchema = exports_external.object({
+  _id: exports_external.string().optional(),
+  name: exports_external.string().min(1),
+  slug: exports_external.string().min(1),
+  ownerId: exports_external.string(),
+  members: exports_external.array(OrganizationMemberSchema).default([]),
+  createdAt: exports_external.coerce.date().optional(),
+  updatedAt: exports_external.coerce.date().optional()
+});
+var MapTileSchema = exports_external.object({
+  type: exports_external.enum([
+    "floor",
+    "wall",
+    "desk",
+    "chair",
+    "door",
+    "meeting-room-floor",
+    "cafeteria-floor",
+    "poster-wall",
+    "spawn-point"
+  ]),
+  objectId: exports_external.string().optional(),
+  rotation: exports_external.number().optional(),
+  metadata: exports_external.record(exports_external.string(), exports_external.unknown()).optional()
+});
+var MapSchema = exports_external.object({
+  _id: exports_external.string().optional(),
+  organizationId: exports_external.string(),
+  name: exports_external.string().min(1),
+  width: exports_external.number().int().positive(),
+  height: exports_external.number().int().positive(),
+  tiles: exports_external.array(exports_external.array(MapTileSchema)),
+  collisionGrid: exports_external.array(exports_external.array(exports_external.number().int().min(0).max(1))).optional(),
+  spawnPoint: exports_external.object({ x: exports_external.number().int(), y: exports_external.number().int() }),
+  rooms: exports_external.array(exports_external.object({
+    id: exports_external.string(),
+    name: exports_external.string(),
+    type: exports_external.string(),
+    bounds: exports_external.object({ x: exports_external.number().int(), y: exports_external.number().int(), w: exports_external.number().int(), h: exports_external.number().int() })
+  })).default([])
+});
+var MessageSchema = exports_external.object({
+  _id: exports_external.string().optional(),
+  roomId: exports_external.string(),
+  senderId: exports_external.string(),
+  senderName: exports_external.string().optional(),
+  recipientId: exports_external.string().optional(),
+  type: exports_external.enum(["direct", "room"]),
+  content: exports_external.string(),
+  mentions: exports_external.array(exports_external.string()).default([]),
+  createdAt: exports_external.coerce.date().optional()
+});
+var InviteSchema = exports_external.object({
+  _id: exports_external.string().optional(),
+  organizationId: exports_external.string(),
+  email: exports_external.string().email(),
+  role: OrgRole.default("member"),
+  tokenHash: exports_external.string(),
+  createdBy: exports_external.string(),
+  expiresAt: exports_external.coerce.date(),
+  acceptedAt: exports_external.coerce.date().optional(),
+  createdAt: exports_external.coerce.date().optional(),
+  updatedAt: exports_external.coerce.date().optional()
+});
+var RoomJoinSchema = exports_external.object({
+  mapId: exports_external.string(),
+  characterId: exports_external.string().optional()
+});
+var PlayerMoveSchema = exports_external.object({
+  mapId: exports_external.string(),
+  position: exports_external.object({ x: exports_external.number().int(), y: exports_external.number().int() }),
+  direction: exports_external.string().optional()
+});
+var ChatSendSchema = exports_external.object({
+  mapId: exports_external.string(),
+  content: exports_external.string().min(1).max(2000),
+  recipientId: exports_external.string().optional(),
+  type: exports_external.enum(["direct", "room"]).optional()
+});
+var PlayerStatusSchema = exports_external.object({
+  status: UserStatus
+});
+var PlayerStateSchema = exports_external.object({
+  userId: exports_external.string(),
+  name: exports_external.string(),
+  characterId: exports_external.string().optional(),
+  position: exports_external.object({ x: exports_external.number().int(), y: exports_external.number().int() }),
+  status: UserStatus.default("available")
+});
+var TokenPairSchema = exports_external.object({
+  token: exports_external.string(),
+  accessToken: exports_external.string(),
+  refreshToken: exports_external.string()
+});
+var RefreshTokenInputSchema = exports_external.object({
+  refreshToken: exports_external.string().min(1)
+});
+var InviteCreateSchema = exports_external.object({
+  email: exports_external.string().email(),
+  role: OrgRole.default("member")
+});
+var InviteAcceptSchema = exports_external.object({
+  token: exports_external.string().min(1)
+});
+var ApiKeyValidateSchema = exports_external.object({
+  key: exports_external.string().min(1),
+  permission: exports_external.string().optional()
+});
 
 // ../../packages/utils/src/index.ts
 var import_jsonwebtoken = __toESM(require_jsonwebtoken(), 1);
@@ -94589,6 +94722,9 @@ function authMiddleware(jwtSecret) {
     const token = auth.replace("Bearer ", "");
     try {
       const payload = verifyJwt(token, jwtSecret);
+      if (payload.type && payload.type !== "access") {
+        return next(new AppError("Invalid token", 401));
+      }
       req.user = payload;
       next();
     } catch {
@@ -94623,7 +94759,7 @@ class AppError extends Error {
 
 // src/models/User.ts
 var import_mongoose2 = __toESM(require_mongoose2(), 1);
-var UserSchema = new import_mongoose2.Schema({
+var UserSchema2 = new import_mongoose2.Schema({
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
   name: { type: String, required: true },
@@ -94631,18 +94767,25 @@ var UserSchema = new import_mongoose2.Schema({
   organizationIds: [{ type: String }],
   role: { type: String, default: "member" },
   designation: { type: String },
-  status: { type: String, default: "available" }
+  status: { type: String, default: "available" },
+  refreshTokenVersion: { type: Number, default: 0 }
 }, { timestamps: true });
-var UserModel = import_mongoose2.default.model("User", UserSchema);
+var UserModel = import_mongoose2.default.model("User", UserSchema2);
 
 // src/models/Organization.ts
 var import_mongoose3 = __toESM(require_mongoose2(), 1);
-var OrganizationSchema = new import_mongoose3.Schema({
+var MemberSchema = new import_mongoose3.Schema({
+  userId: { type: String, required: true },
+  role: { type: String, enum: ["owner", "admin", "member", "viewer"], default: "member" },
+  joinedAt: { type: Date, default: Date.now }
+}, { _id: false });
+var OrganizationSchema2 = new import_mongoose3.Schema({
   name: { type: String, required: true },
   slug: { type: String, required: true, unique: true },
-  ownerId: { type: String, required: true }
+  ownerId: { type: String, required: true },
+  members: { type: [MemberSchema], default: [] }
 }, { timestamps: true });
-var OrganizationModel = import_mongoose3.default.model("Organization", OrganizationSchema);
+var OrganizationModel = import_mongoose3.default.model("Organization", OrganizationSchema2);
 
 // src/models/ApiKey.ts
 var import_mongoose4 = __toESM(require_mongoose2(), 1);
@@ -94655,11 +94798,53 @@ var ApiKeySchema = new import_mongoose4.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 var ApiKeyModel = import_mongoose4.default.model("ApiKey", ApiKeySchema);
+
+// src/models/Invite.ts
+var import_mongoose5 = __toESM(require_mongoose2(), 1);
+var InviteSchema2 = new import_mongoose5.Schema({
+  organizationId: { type: String, required: true, index: true },
+  email: { type: String, required: true, index: true },
+  role: {
+    type: String,
+    enum: ["owner", "admin", "member", "viewer"],
+    default: "member"
+  },
+  tokenHash: { type: String, required: true, unique: true },
+  createdBy: { type: String, required: true },
+  expiresAt: { type: Date, required: true, index: true },
+  acceptedAt: { type: Date, default: null }
+}, { timestamps: true });
+InviteSchema2.index({ organizationId: 1, email: 1, acceptedAt: 1 });
+var InviteModel = import_mongoose5.default.model("Invite", InviteSchema2);
+
+// src/models/Message.ts
+var import_mongoose6 = __toESM(require_mongoose2(), 1);
+var MessageSchema2 = new import_mongoose6.Schema({
+  roomId: { type: String, required: true, index: true },
+  senderId: { type: String, required: true, index: true },
+  senderName: { type: String, required: true },
+  recipientId: { type: String, default: null, index: true },
+  type: { type: String, enum: ["direct", "room"], default: "room" },
+  content: { type: String, required: true },
+  mentions: { type: [String], default: [] }
+}, { timestamps: true });
+MessageSchema2.index({ roomId: 1, createdAt: -1 });
+var MessageModel = import_mongoose6.default.model("Message", MessageSchema2);
 // src/index.ts
 var __dirname2 = path.dirname(fileURLToPath(import.meta.url));
 import_dotenv.default.config({ path: path.resolve(__dirname2, "../../../.env") });
 var env = loadEnv(process.env);
 var app = import_express.default();
+var ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || "15m";
+var REFRESH_TOKEN_TTL = process.env.REFRESH_TOKEN_TTL || "30d";
+var INVITE_TTL_DAYS = Math.max(1, Number(process.env.INVITE_TTL_DAYS || 7));
+var ORG_ROLES = ["owner", "admin", "member", "viewer"];
+var ROLE_WEIGHT = {
+  viewer: 0,
+  member: 1,
+  admin: 2,
+  owner: 3
+};
 app.use(helmet());
 app.use(import_cors.default({ origin: env.CORS_ORIGIN.split(","), credentials: true }));
 app.use(import_express.default.json());
@@ -94671,6 +94856,117 @@ var authLimiter = lib_default({
   message: { error: "Too many requests, please try again later" }
 });
 app.use("/auth", authLimiter);
+var auth = authMiddleware(env.JWT_SECRET);
+function serviceOnly(serviceName) {
+  return function(req, _res, next) {
+    if (req.user?.service !== serviceName) {
+      return next(new AppError("Forbidden", 403));
+    }
+    next();
+  };
+}
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+function hashValue(raw) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+function generateApiKey(prefix) {
+  const raw = crypto.randomBytes(32).toString("base64url");
+  return `${prefix}${raw}`;
+}
+function generateInviteToken() {
+  return `inv_${crypto.randomBytes(24).toString("base64url")}`;
+}
+function signAccessToken(user) {
+  return import_jsonwebtoken2.default.sign({
+    userId: String(user._id),
+    email: user.email,
+    name: user.name,
+    tokenVersion: user.refreshTokenVersion || 0,
+    type: "access"
+  }, env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL });
+}
+function signRefreshToken(user) {
+  return import_jsonwebtoken2.default.sign({
+    userId: String(user._id),
+    email: user.email,
+    tokenVersion: user.refreshTokenVersion || 0,
+    type: "refresh"
+  }, env.JWT_SECRET, { expiresIn: REFRESH_TOKEN_TTL });
+}
+function buildTokenPair(user) {
+  const accessToken = signAccessToken(user);
+  const refreshToken = signRefreshToken(user);
+  return {
+    token: accessToken,
+    accessToken,
+    refreshToken
+  };
+}
+function sanitizeUser(user) {
+  return {
+    id: String(user._id),
+    _id: String(user._id),
+    email: user.email,
+    name: user.name,
+    avatarCharacterId: user.avatarCharacterId,
+    organizationIds: user.organizationIds || [],
+    role: user.role,
+    designation: user.designation,
+    status: user.status,
+    refreshTokenVersion: user.refreshTokenVersion || 0,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  };
+}
+function roleCanAssign(actorRole, targetRole) {
+  if (actorRole === "owner")
+    return true;
+  if (actorRole === "admin")
+    return ROLE_WEIGHT[targetRole] <= ROLE_WEIGHT.member;
+  return false;
+}
+function getOrgRole(org, user, userId) {
+  if (String(org.ownerId) === userId)
+    return "owner";
+  const member = (org.members || []).find((m) => String(m.userId) === userId);
+  if (member?.role && ORG_ROLES.includes(member.role)) {
+    return member.role;
+  }
+  if ((user.organizationIds || []).includes(String(org._id))) {
+    return "member";
+  }
+  return null;
+}
+async function requireOrgAccess(userId, orgId, allowedRoles) {
+  const [org, user] = await Promise.all([
+    OrganizationModel.findById(orgId),
+    UserModel.findById(userId)
+  ]);
+  if (!org)
+    throw new AppError("Organization not found", 404);
+  if (!user)
+    throw new AppError("User not found", 404);
+  const role = getOrgRole(org, user, userId);
+  if (!role)
+    throw new AppError("Forbidden", 403);
+  if (allowedRoles && !allowedRoles.includes(role)) {
+    throw new AppError("Insufficient permissions", 403);
+  }
+  return { org, user, role };
+}
+async function addUserToOrg(org, userId, role) {
+  const orgId = String(org._id);
+  const existing = (org.members || []).find((m) => String(m.userId) === userId);
+  if (!existing) {
+    org.members.push({ userId, role, joinedAt: new Date });
+    await org.save();
+  }
+  await UserModel.findByIdAndUpdate(userId, {
+    $addToSet: { organizationIds: orgId }
+  });
+}
 app.get("/health", (_req, res) => res.json({ ok: true }));
 var SignupSchema = exports_external.object({
   email: exports_external.string().email(),
@@ -94680,18 +94976,19 @@ var SignupSchema = exports_external.object({
 app.post("/auth/signup", async (req, res, next) => {
   try {
     const input = SignupSchema.parse(req.body);
-    const existing = await UserModel.findOne({ email: input.email });
+    const email = normalizeEmail(input.email);
+    const existing = await UserModel.findOne({ email });
     if (existing)
       throw new AppError("Email already in use", 409);
     const passwordHash = await import_bcryptjs.default.hash(input.password, 10);
     const user = await UserModel.create({
-      email: input.email,
+      email,
       passwordHash,
       name: input.name,
       organizationIds: []
     });
-    const token = import_jsonwebtoken2.default.sign({ userId: user.id, email: user.email, name: user.name }, env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    const tokens = buildTokenPair(user);
+    res.json({ ...tokens, user: sanitizeUser(user) });
   } catch (err) {
     next(err);
   }
@@ -94703,24 +95000,69 @@ var LoginSchema = exports_external.object({
 app.post("/auth/login", async (req, res, next) => {
   try {
     const input = LoginSchema.parse(req.body);
-    const user = await UserModel.findOne({ email: input.email });
+    const email = normalizeEmail(input.email);
+    const user = await UserModel.findOne({ email });
     if (!user)
       throw new AppError("Invalid credentials", 401);
     const ok = await import_bcryptjs.default.compare(input.password, user.passwordHash);
     if (!ok)
       throw new AppError("Invalid credentials", 401);
-    const token = import_jsonwebtoken2.default.sign({ userId: user.id, email: user.email, name: user.name }, env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    const tokens = buildTokenPair(user);
+    res.json({ ...tokens, user: sanitizeUser(user) });
   } catch (err) {
     next(err);
   }
 });
-app.get("/users/me", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.post("/auth/refresh", async (req, res, next) => {
   try {
-    const user = await UserModel.findById(req.user.userId).lean();
+    const { refreshToken } = RefreshTokenInputSchema.parse(req.body);
+    let payload;
+    try {
+      payload = import_jsonwebtoken2.default.verify(refreshToken, env.JWT_SECRET);
+    } catch {
+      throw new AppError("Invalid refresh token", 401);
+    }
+    if (payload.type !== "refresh") {
+      throw new AppError("Invalid refresh token", 401);
+    }
+    const user = await UserModel.findById(payload.userId);
     if (!user)
       throw new AppError("User not found", 404);
-    res.json({ user });
+    if ((user.refreshTokenVersion || 0) !== (payload.tokenVersion || 0)) {
+      throw new AppError("Refresh token expired", 401);
+    }
+    const tokens = buildTokenPair(user);
+    res.json({ ...tokens, user: sanitizeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+});
+app.post("/auth/logout", auth, async (req, res, next) => {
+  try {
+    await UserModel.findByIdAndUpdate(req.user.userId, {
+      $inc: { refreshTokenVersion: 1 }
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+app.post("/auth/logout-all", auth, async (req, res, next) => {
+  try {
+    await UserModel.findByIdAndUpdate(req.user.userId, {
+      $inc: { refreshTokenVersion: 1 }
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+app.get("/users/me", auth, async (req, res, next) => {
+  try {
+    const user = await UserModel.findById(req.user.userId);
+    if (!user)
+      throw new AppError("User not found", 404);
+    res.json({ user: sanitizeUser(user) });
   } catch (err) {
     next(err);
   }
@@ -94730,99 +95072,295 @@ var UserUpdateSchema = exports_external.object({
   designation: exports_external.string().optional(),
   status: exports_external.enum(["available", "busy", "away", "in-meeting"]).optional()
 });
-app.patch("/users/me", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.patch("/users/me", auth, async (req, res, next) => {
   try {
     const input = UserUpdateSchema.parse(req.body);
-    const user = await UserModel.findByIdAndUpdate(req.user.userId, input, { new: true }).lean();
+    const user = await UserModel.findByIdAndUpdate(req.user.userId, input, { new: true });
     if (!user)
       throw new AppError("User not found", 404);
-    res.json({ user });
+    res.json({ user: sanitizeUser(user) });
   } catch (err) {
     next(err);
   }
 });
-var OrgSchema = exports_external.object({
+var OrgCreateSchema = exports_external.object({
   name: exports_external.string().min(1),
-  slug: exports_external.string().min(1)
+  slug: exports_external.string().min(2).max(80).regex(/^[a-z0-9-]+$/)
 });
-app.post("/orgs", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.post("/orgs", auth, async (req, res, next) => {
   try {
-    const input = OrgSchema.parse(req.body);
+    const input = OrgCreateSchema.parse(req.body);
     const org = await OrganizationModel.create({
       name: input.name,
       slug: input.slug,
-      ownerId: req.user.userId
+      ownerId: req.user.userId,
+      members: [
+        {
+          userId: req.user.userId,
+          role: "owner",
+          joinedAt: new Date
+        }
+      ]
     });
-    await UserModel.findByIdAndUpdate(req.user.userId, { $addToSet: { organizationIds: org.id }, role: "owner" });
-    res.json({ org });
+    await UserModel.findByIdAndUpdate(req.user.userId, {
+      $addToSet: { organizationIds: String(org._id) },
+      role: "owner"
+    });
+    res.status(201).json({ org });
   } catch (err) {
+    if (err?.code === 11000) {
+      return next(new AppError("Organization slug already exists", 409));
+    }
     next(err);
   }
 });
-app.get("/orgs", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.get("/orgs", auth, async (req, res, next) => {
   try {
     const user = await UserModel.findById(req.user.userId).lean();
     if (!user)
       throw new AppError("User not found", 404);
-    const orgs = await OrganizationModel.find({ _id: { $in: user.organizationIds } }).lean();
+    const orgIds = user.organizationIds || [];
+    const orgs = await OrganizationModel.find({
+      $or: [
+        { _id: { $in: orgIds } },
+        { ownerId: req.user.userId },
+        { "members.userId": req.user.userId }
+      ]
+    }).lean();
     res.json({ orgs });
   } catch (err) {
     next(err);
   }
 });
-app.get("/orgs/:id", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.get("/orgs/:id", auth, async (req, res, next) => {
   try {
-    const org = await OrganizationModel.findById(req.params.id).lean();
-    if (!org)
-      throw new AppError("Org not found", 404);
+    const { org } = await requireOrgAccess(req.user.userId, req.params.id);
     res.json({ org });
   } catch (err) {
     next(err);
   }
 });
-app.get("/orgs/:id/members", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.get("/orgs/:id/roles", auth, async (req, res, next) => {
   try {
-    const members = await UserModel.find({ organizationIds: req.params.id }, { passwordHash: 0 }).lean();
-    res.json({ members });
+    const { role } = await requireOrgAccess(req.user.userId, req.params.id);
+    res.json({ roles: ORG_ROLES, currentRole: role });
   } catch (err) {
     next(err);
   }
 });
-app.post("/orgs/join", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+var RoleUpdateSchema = exports_external.object({
+  role: exports_external.enum(["owner", "admin", "member", "viewer"])
+});
+app.patch("/orgs/:id/members/:userId/role", auth, async (req, res, next) => {
   try {
-    const { slug } = exports_external.object({ slug: exports_external.string().min(1) }).parse(req.body);
+    const { role: targetRole } = RoleUpdateSchema.parse(req.body);
+    const actorId = req.user.userId;
+    const targetUserId = req.params.userId;
+    const { org, role: actorRole } = await requireOrgAccess(actorId, req.params.id, ["owner", "admin"]);
+    if (!roleCanAssign(actorRole, targetRole)) {
+      throw new AppError("Insufficient permissions to assign this role", 403);
+    }
+    const targetUser = await UserModel.findById(targetUserId);
+    if (!targetUser)
+      throw new AppError("Target user not found", 404);
+    if (targetRole === "owner") {
+      if (actorRole !== "owner") {
+        throw new AppError("Only owners can transfer ownership", 403);
+      }
+      const previousOwnerId = String(org.ownerId);
+      org.ownerId = targetUserId;
+      const prevOwnerMember = (org.members || []).find((m) => String(m.userId) === previousOwnerId);
+      if (prevOwnerMember) {
+        prevOwnerMember.role = "admin";
+      } else {
+        org.members.push({ userId: previousOwnerId, role: "admin", joinedAt: new Date });
+      }
+      const targetMember = (org.members || []).find((m) => String(m.userId) === targetUserId);
+      if (targetMember) {
+        targetMember.role = "owner";
+      } else {
+        org.members.push({ userId: targetUserId, role: "owner", joinedAt: new Date });
+      }
+      await org.save();
+      await Promise.all([
+        UserModel.findByIdAndUpdate(targetUserId, { $addToSet: { organizationIds: String(org._id) } }),
+        UserModel.findByIdAndUpdate(previousOwnerId, { $addToSet: { organizationIds: String(org._id) } })
+      ]);
+      return res.json({ ok: true, ownerId: targetUserId });
+    }
+    const member = (org.members || []).find((m) => String(m.userId) === targetUserId);
+    if (!member) {
+      org.members.push({ userId: targetUserId, role: targetRole, joinedAt: new Date });
+    } else {
+      member.role = targetRole;
+    }
+    await org.save();
+    await UserModel.findByIdAndUpdate(targetUserId, {
+      $addToSet: { organizationIds: String(org._id) }
+    });
+    res.json({ ok: true, role: targetRole });
+  } catch (err) {
+    next(err);
+  }
+});
+app.get("/orgs/:id/members", auth, async (req, res, next) => {
+  try {
+    const { org } = await requireOrgAccess(req.user.userId, req.params.id);
+    const memberIds = new Set((org.members || []).map((m) => String(m.userId)));
+    memberIds.add(String(org.ownerId));
+    const members = await UserModel.find({
+      $or: [
+        { organizationIds: req.params.id },
+        { _id: { $in: Array.from(memberIds) } }
+      ]
+    }, { passwordHash: 0 }).lean();
+    const hydrated = members.map((m) => {
+      const roleFromOrg = String(org.ownerId) === String(m._id) ? "owner" : (org.members || []).find((entry) => String(entry.userId) === String(m._id))?.role || "member";
+      return {
+        ...m,
+        role: roleFromOrg
+      };
+    });
+    res.json({ members: hydrated });
+  } catch (err) {
+    next(err);
+  }
+});
+var JoinOrgSchema = exports_external.object({ slug: exports_external.string().min(1) });
+app.post("/orgs/join", auth, async (req, res, next) => {
+  try {
+    const { slug } = JoinOrgSchema.parse(req.body);
     const org = await OrganizationModel.findOne({ slug });
     if (!org)
       throw new AppError("Organization not found", 404);
-    await UserModel.findByIdAndUpdate(req.user.userId, {
-      $addToSet: { organizationIds: org.id }
-    });
+    await addUserToOrg(org, req.user.userId, "member");
     res.json({ org });
   } catch (err) {
     next(err);
   }
 });
-app.post("/orgs/:id/invite", authMiddleware(env.JWT_SECRET), async (_req, res) => {
-  res.json({ ok: true });
+async function createInvite(orgId, actorId, email, role) {
+  const { role: actorRole } = await requireOrgAccess(actorId, orgId, ["owner", "admin"]);
+  if (!roleCanAssign(actorRole, role)) {
+    throw new AppError("Insufficient permissions to assign this invite role", 403);
+  }
+  const normalizedEmail = normalizeEmail(email);
+  const existingPending = await InviteModel.findOne({
+    organizationId: orgId,
+    email: normalizedEmail,
+    acceptedAt: null,
+    expiresAt: { $gt: new Date }
+  });
+  if (existingPending) {
+    throw new AppError("Pending invite already exists for this email", 409);
+  }
+  const rawToken = generateInviteToken();
+  const invite = await InviteModel.create({
+    organizationId: orgId,
+    email: normalizedEmail,
+    role,
+    tokenHash: hashValue(rawToken),
+    createdBy: actorId,
+    expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)
+  });
+  return { invite, rawToken };
+}
+app.post("/orgs/:id/invites", auth, async (req, res, next) => {
+  try {
+    const input = InviteCreateSchema.parse(req.body);
+    const { invite, rawToken } = await createInvite(req.params.id, req.user.userId, input.email, input.role);
+    res.status(201).json({
+      invite: {
+        id: String(invite._id),
+        organizationId: invite.organizationId,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt,
+        createdAt: invite.createdAt
+      },
+      inviteToken: rawToken,
+      acceptPath: `/invites/${rawToken}/accept`
+    });
+  } catch (err) {
+    next(err);
+  }
 });
-var ApiKeySchema2 = exports_external.object({
+app.post("/orgs/:id/invite", auth, async (req, res, next) => {
+  try {
+    const email = exports_external.string().email().parse(req.body?.email);
+    const role = exports_external.enum(["owner", "admin", "member", "viewer"]).default("member").parse(req.body?.role ?? "member");
+    const { invite, rawToken } = await createInvite(req.params.id, req.user.userId, email, role);
+    res.status(201).json({
+      ok: true,
+      invite: {
+        id: String(invite._id),
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt
+      },
+      inviteToken: rawToken
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+app.get("/orgs/:id/invites", auth, async (req, res, next) => {
+  try {
+    await requireOrgAccess(req.user.userId, req.params.id, ["owner", "admin"]);
+    const invites = await InviteModel.find({
+      organizationId: req.params.id,
+      acceptedAt: null,
+      expiresAt: { $gt: new Date }
+    }).sort({ createdAt: -1 }).lean();
+    res.json({ invites });
+  } catch (err) {
+    next(err);
+  }
+});
+app.post("/invites/:token/accept", auth, async (req, res, next) => {
+  try {
+    const token = exports_external.string().min(1).parse(req.params.token);
+    const tokenHash = hashValue(token);
+    const invite = await InviteModel.findOne({
+      tokenHash,
+      acceptedAt: null,
+      expiresAt: { $gt: new Date }
+    });
+    if (!invite)
+      throw new AppError("Invite not found or expired", 404);
+    const user = await UserModel.findById(req.user.userId);
+    if (!user)
+      throw new AppError("User not found", 404);
+    if (normalizeEmail(user.email) !== normalizeEmail(invite.email)) {
+      throw new AppError("This invite was issued for a different email", 403);
+    }
+    const org = await OrganizationModel.findById(invite.organizationId);
+    if (!org)
+      throw new AppError("Organization not found", 404);
+    await addUserToOrg(org, req.user.userId, invite.role);
+    invite.acceptedAt = new Date;
+    await invite.save();
+    res.json({
+      ok: true,
+      orgId: invite.organizationId,
+      role: invite.role
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+var ApiKeyCreateSchema = exports_external.object({
   organizationId: exports_external.string(),
   name: exports_external.string().min(1),
   permissions: exports_external.array(exports_external.string()).default([])
 });
-function hashKey(raw) {
-  return crypto.createHash("sha256").update(raw).digest("hex");
-}
-function generateKey(prefix) {
-  const raw = crypto.randomBytes(32).toString("base64url");
-  return `${prefix}${raw}`;
-}
-app.post("/api-keys", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.post("/api-keys", auth, async (req, res, next) => {
   try {
-    const input = ApiKeySchema2.parse(req.body);
+    const input = ApiKeyCreateSchema.parse(req.body);
+    await requireOrgAccess(req.user.userId, input.organizationId, ["owner", "admin"]);
     const prefix = "mk_test_";
-    const rawKey = generateKey(prefix);
-    const keyHash = hashKey(rawKey);
+    const rawKey = generateApiKey(prefix);
+    const keyHash = hashValue(rawKey);
     const apiKey = await ApiKeyModel.create({
       organizationId: input.organizationId,
       name: input.name,
@@ -94830,23 +95368,108 @@ app.post("/api-keys", authMiddleware(env.JWT_SECRET), async (req, res, next) => 
       prefix,
       keyHash
     });
-    res.json({ apiKeyId: apiKey.id, key: rawKey });
+    res.status(201).json({
+      apiKeyId: String(apiKey._id),
+      key: rawKey,
+      organizationId: input.organizationId,
+      name: input.name,
+      permissions: input.permissions
+    });
   } catch (err) {
     next(err);
   }
 });
-app.delete("/api-keys/:id", authMiddleware(env.JWT_SECRET), async (req, res, next) => {
+app.get("/api-keys", auth, async (req, res, next) => {
   try {
-    await ApiKeyModel.findByIdAndDelete(req.params.id);
+    const organizationId = exports_external.string().min(1).parse(req.query.organizationId);
+    await requireOrgAccess(req.user.userId, organizationId, ["owner", "admin"]);
+    const apiKeys = await ApiKeyModel.find({ organizationId }, { keyHash: 0 }).sort({ createdAt: -1 }).lean();
+    res.json({ apiKeys });
+  } catch (err) {
+    next(err);
+  }
+});
+app.post("/api-keys/validate", async (req, res, next) => {
+  try {
+    const input = ApiKeyValidateSchema.parse(req.body);
+    const keyHash = hashValue(input.key);
+    const apiKey = await ApiKeyModel.findOne({ keyHash }).lean();
+    if (!apiKey) {
+      return res.json({ valid: false });
+    }
+    if (input.permission && !(apiKey.permissions || []).includes(input.permission)) {
+      return res.json({ valid: false });
+    }
+    res.json({
+      valid: true,
+      apiKeyId: String(apiKey._id),
+      organizationId: apiKey.organizationId,
+      name: apiKey.name,
+      permissions: apiKey.permissions || []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+app.delete("/api-keys/:id", auth, async (req, res, next) => {
+  try {
+    const apiKey = await ApiKeyModel.findById(req.params.id);
+    if (!apiKey)
+      throw new AppError("API key not found", 404);
+    await requireOrgAccess(req.user.userId, apiKey.organizationId, ["owner", "admin"]);
+    await apiKey.deleteOne();
     res.json({ ok: true });
   } catch (err) {
     next(err);
   }
 });
+var InternalMessageSchema = exports_external.object({
+  mapId: exports_external.string().min(1),
+  senderId: exports_external.string().min(1),
+  senderName: exports_external.string().min(1),
+  content: exports_external.string().min(1).max(2000),
+  recipientId: exports_external.string().optional(),
+  type: exports_external.enum(["direct", "room"]).optional(),
+  mentions: exports_external.array(exports_external.string()).optional()
+});
+app.post("/internal/messages", auth, serviceOnly("ws-service"), async (req, res, next) => {
+  try {
+    const input = InternalMessageSchema.parse(req.body);
+    const type = input.type || (input.recipientId ? "direct" : "room");
+    const message = await MessageModel.create({
+      roomId: input.mapId,
+      senderId: input.senderId,
+      senderName: input.senderName,
+      recipientId: input.recipientId,
+      type,
+      content: input.content,
+      mentions: input.mentions || []
+    });
+    res.status(201).json({
+      message: {
+        id: String(message._id),
+        roomId: message.roomId,
+        senderId: message.senderId,
+        senderName: message.senderName,
+        recipientId: message.recipientId,
+        type: message.type,
+        content: message.content,
+        mentions: message.mentions,
+        createdAt: message.createdAt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 app.use((err, _req, res, _next) => {
-  const status = err instanceof AppError ? err.statusCode : 400;
+  const status = err instanceof AppError ? err.statusCode : 500;
   const message = err instanceof Error ? err.message : "Unknown error";
-  logError(message);
+  if (status >= 500) {
+    logError(message, { stack: err?.stack });
+  } else {
+    logError(message);
+  }
   res.status(status).json({ error: message });
 });
 connectDb(env.MONGO_URL).then(() => {

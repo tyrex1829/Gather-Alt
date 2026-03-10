@@ -92233,7 +92233,10 @@ var EnvSchema = exports_external.object({
   REDIS_URL: exports_external.string().url().optional(),
   GATEWAY_PORT: exports_external.coerce.number().default(4000),
   WS_PORT: exports_external.coerce.number().default(4001),
+  MEDIA_PORT: exports_external.coerce.number().default(4002),
+  AI_PORT: exports_external.coerce.number().default(4003),
   MAP_PORT: exports_external.coerce.number().default(4004),
+  NOTIFICATION_PORT: exports_external.coerce.number().default(4005),
   CORS_ORIGIN: exports_external.string().default("http://localhost:3000")
 });
 function loadEnv(env) {
@@ -92254,6 +92257,9 @@ function authMiddleware(jwtSecret) {
     const token = auth.replace("Bearer ", "");
     try {
       const payload = verifyJwt(token, jwtSecret);
+      if (payload.type && payload.type !== "access") {
+        return next(new AppError("Invalid token", 401));
+      }
       req.user = payload;
       next();
     } catch {
@@ -92300,6 +92306,29 @@ var MapSchema = new import_mongoose2.Schema({
 }, { timestamps: true });
 var MapModel = import_mongoose2.default.model("Map", MapSchema);
 
+// src/models/User.ts
+var import_mongoose3 = __toESM(require_mongoose2(), 1);
+var UserSchema = new import_mongoose3.Schema({
+  email: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  organizationIds: [{ type: String }]
+}, { timestamps: true });
+var UserModel = import_mongoose3.default.model("User", UserSchema);
+
+// src/models/Message.ts
+var import_mongoose4 = __toESM(require_mongoose2(), 1);
+var MessageSchema = new import_mongoose4.Schema({
+  roomId: { type: String, required: true, index: true },
+  senderId: { type: String, required: true, index: true },
+  senderName: { type: String, required: true },
+  recipientId: { type: String, default: null, index: true },
+  type: { type: String, enum: ["direct", "room"], default: "room" },
+  content: { type: String, required: true },
+  mentions: { type: [String], default: [] }
+}, { timestamps: true });
+MessageSchema.index({ roomId: 1, createdAt: -1 });
+var MessageModel = import_mongoose4.default.model("Message", MessageSchema);
+
 // src/index.ts
 var __dirname2 = path.dirname(fileURLToPath(import.meta.url));
 import_dotenv.default.config({ path: path.resolve(__dirname2, "../../../.env") });
@@ -92317,20 +92346,50 @@ var TileSchema = exports_external.object({
 });
 var MapCreateSchema = exports_external.object({
   organizationId: exports_external.string(),
-  name: exports_external.string(),
+  name: exports_external.string().min(1),
   width: exports_external.number().int().positive(),
   height: exports_external.number().int().positive(),
   tiles: exports_external.array(exports_external.array(TileSchema)),
   spawnPoint: exports_external.object({ x: exports_external.number().int(), y: exports_external.number().int() }),
   rooms: exports_external.array(exports_external.any()).optional()
 });
+var MessageListQuerySchema = exports_external.object({
+  cursor: exports_external.string().datetime().optional(),
+  limit: exports_external.coerce.number().int().min(1).max(100).default(50)
+});
 function buildCollisionGrid(tiles) {
   return tiles.map((row) => row.map((t) => t.type === "wall" || t.type === "desk" || t.type === "chair" ? 1 : 0));
+}
+function isServiceRequest(req, serviceName) {
+  if (!req.user?.service)
+    return false;
+  if (!serviceName)
+    return true;
+  return req.user.service === serviceName;
+}
+async function requireUserOrgAccess(req, organizationId) {
+  if (isServiceRequest(req))
+    return;
+  const user = await UserModel.findById(req.user.userId).lean();
+  if (!user)
+    throw new AppError("User not found", 404);
+  const orgIds = user.organizationIds || [];
+  if (!orgIds.includes(organizationId)) {
+    throw new AppError("Forbidden", 403);
+  }
+}
+async function requireMapAccess(req, mapId) {
+  const map = await MapModel.findById(mapId).lean();
+  if (!map)
+    throw new AppError("Map not found", 404);
+  await requireUserOrgAccess(req, map.organizationId);
+  return map;
 }
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/maps", auth, async (req, res, next) => {
   try {
     const { organizationId } = exports_external.object({ organizationId: exports_external.string() }).parse(req.query);
+    await requireUserOrgAccess(req, organizationId);
     const maps = await MapModel.find({ organizationId }, { _id: 1, name: 1, width: 1, height: 1, spawnPoint: 1, organizationId: 1 }).lean();
     res.json({ maps });
   } catch (err) {
@@ -92340,18 +92399,17 @@ app.get("/maps", auth, async (req, res, next) => {
 app.post("/maps", auth, async (req, res, next) => {
   try {
     const input = MapCreateSchema.parse(req.body);
+    await requireUserOrgAccess(req, input.organizationId);
     const collisionGrid = buildCollisionGrid(input.tiles);
     const map = await MapModel.create({ ...input, collisionGrid });
-    res.json({ map });
+    res.status(201).json({ map });
   } catch (err) {
     next(err);
   }
 });
 app.get("/maps/:id", auth, async (req, res, next) => {
   try {
-    const map = await MapModel.findById(req.params.id).lean();
-    if (!map)
-      throw new AppError("Map not found", 404);
+    const map = await requireMapAccess(req, req.params.id);
     res.json({ map });
   } catch (err) {
     next(err);
@@ -92359,7 +92417,11 @@ app.get("/maps/:id", auth, async (req, res, next) => {
 });
 app.patch("/maps/:id", auth, async (req, res, next) => {
   try {
+    const existingMap = await requireMapAccess(req, req.params.id);
     const input = MapCreateSchema.partial().parse(req.body);
+    if (input.organizationId && input.organizationId !== existingMap.organizationId) {
+      await requireUserOrgAccess(req, input.organizationId);
+    }
     const update = { ...input };
     if (input.tiles)
       update.collisionGrid = buildCollisionGrid(input.tiles);
@@ -92371,15 +92433,47 @@ app.patch("/maps/:id", auth, async (req, res, next) => {
 });
 app.delete("/maps/:id", auth, async (req, res, next) => {
   try {
+    await requireMapAccess(req, req.params.id);
     await MapModel.findByIdAndDelete(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     next(err);
   }
 });
+app.get("/maps/:id/messages", auth, async (req, res, next) => {
+  try {
+    await requireMapAccess(req, req.params.id);
+    const query = MessageListQuerySchema.parse(req.query);
+    const filter = {
+      roomId: req.params.id,
+      $or: [
+        { type: "room" },
+        { type: "direct", recipientId: req.user.userId },
+        { type: "direct", senderId: req.user.userId }
+      ]
+    };
+    if (query.cursor) {
+      filter.createdAt = { $lt: new Date(query.cursor) };
+    }
+    const messagesDesc = await MessageModel.find(filter).sort({ createdAt: -1 }).limit(query.limit).lean();
+    const messages = messagesDesc.reverse();
+    const nextCursor = messagesDesc.length === query.limit ? new Date(messagesDesc[messagesDesc.length - 1].createdAt).toISOString() : null;
+    res.json({ messages, nextCursor });
+  } catch (err) {
+    next(err);
+  }
+});
 app.get("/internal/maps/:id/collision", auth, async (req, res, next) => {
   try {
-    const map = await MapModel.findById(req.params.id, { collisionGrid: 1, width: 1, height: 1, spawnPoint: 1 }).lean();
+    if (!isServiceRequest(req, "ws-service")) {
+      await requireMapAccess(req, req.params.id);
+    }
+    const map = await MapModel.findById(req.params.id, {
+      collisionGrid: 1,
+      width: 1,
+      height: 1,
+      spawnPoint: 1
+    }).lean();
     if (!map)
       throw new AppError("Map not found", 404);
     res.json({ map });
@@ -92388,7 +92482,7 @@ app.get("/internal/maps/:id/collision", auth, async (req, res, next) => {
   }
 });
 app.use((err, _req, res, _next) => {
-  const status = err instanceof AppError ? err.statusCode : 400;
+  const status = err instanceof AppError ? err.statusCode : 500;
   const message = err instanceof Error ? err.message : "Unknown error";
   logError(message);
   res.status(status).json({ error: message });

@@ -3,6 +3,7 @@
 import { useAuthStore } from "../../stores/auth";
 import { usePresenceStore } from "../../stores/presence";
 import { getSocket } from "../../lib/ws";
+import { logout } from "../../lib/api";
 import { LogOut, ChevronDown } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -40,6 +41,14 @@ export function TopBar() {
     setOpen(false);
   }
 
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch {
+      clear();
+    }
+  }
+
   return (
     <div className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-[#0a0a0a] px-4">
       <div className="text-sm font-medium text-white/80">Gather</div>
@@ -69,7 +78,7 @@ export function TopBar() {
           )}
         </div>
         <button
-          onClick={() => clear()}
+          onClick={handleLogout}
           className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/70"
         >
           <LogOut className="h-4 w-4" />

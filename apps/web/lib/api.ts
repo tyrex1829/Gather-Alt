@@ -7,13 +7,64 @@ const MAP_URL = process.env.NEXT_PUBLIC_MAP_URL || "http://localhost:4004";
 
 type Service = "gateway" | "map";
 
+let refreshRequest: Promise<string | null> | null = null;
+
 function getBaseUrl(service: Service) {
   return service === "map" ? MAP_URL : GATEWAY_URL;
 }
 
+function shouldSkipRefresh(path: string) {
+  return path.startsWith("/auth/login") || path.startsWith("/auth/signup") || path.startsWith("/auth/refresh");
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshRequest) return refreshRequest;
+
+  refreshRequest = (async () => {
+    const { refreshToken, user, setAuth, clear } = useAuthStore.getState();
+    if (!refreshToken) {
+      clear();
+      return null;
+    }
+
+    try {
+      const res = await fetch(`${GATEWAY_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        clear();
+        return null;
+      }
+
+      const accessToken = data.token || data.accessToken;
+      if (!accessToken) {
+        clear();
+        return null;
+      }
+
+      setAuth(accessToken, data.user || user, data.refreshToken || refreshToken);
+      return accessToken;
+    } catch {
+      clear();
+      return null;
+    }
+  })();
+
+  try {
+    return await refreshRequest;
+  } finally {
+    refreshRequest = null;
+  }
+}
+
 export async function api(
   path: string,
-  options: RequestInit & { service?: Service } = {}
+  options: RequestInit & { service?: Service } = {},
+  retryOn401 = true
 ) {
   const { service = "gateway", ...fetchOptions } = options;
   const base = getBaseUrl(service);
@@ -21,10 +72,11 @@ export async function api(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(fetchOptions.headers as Record<string, string> || {})
+    ...((fetchOptions.headers as Record<string, string>) || {})
   };
+
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const res = await fetch(`${base}${path}`, {
@@ -33,7 +85,12 @@ export async function api(
   });
   const data = await res.json().catch(() => ({}));
 
-  if (res.status === 401) {
+  if (res.status === 401 && retryOn401 && !shouldSkipRefresh(path)) {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) {
+      return api(path, options, false);
+    }
+
     useAuthStore.getState().clear();
     if (typeof window !== "undefined") {
       window.location.href = "/login";
@@ -44,6 +101,7 @@ export async function api(
   if (!res.ok) {
     throw new Error(data?.error || "Request failed");
   }
+
   return data;
 }
 
@@ -60,6 +118,14 @@ export async function signup(email: string, password: string, name: string) {
     method: "POST",
     body: JSON.stringify({ email, password, name })
   });
+}
+
+export async function logout() {
+  try {
+    await api("/auth/logout", { method: "POST" }, false);
+  } finally {
+    useAuthStore.getState().clear();
+  }
 }
 
 export async function getMe() {
@@ -96,6 +162,13 @@ export async function getMaps(organizationId: string) {
 
 export async function getMap(mapId: string) {
   return api(`/maps/${mapId}`, { service: "map" });
+}
+
+export async function getMapMessages(mapId: string, cursor?: string, limit = 50) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
+  return api(`/maps/${mapId}/messages?${params.toString()}`, { service: "map" });
 }
 
 export async function createMap(data: {
