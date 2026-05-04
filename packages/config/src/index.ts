@@ -11,7 +11,10 @@ const EnvSchema = z.object({
   AI_PORT: z.coerce.number().default(4003),
   MAP_PORT: z.coerce.number().default(4004),
   NOTIFICATION_PORT: z.coerce.number().default(4005),
-  CORS_ORIGIN: z.string().default("http://localhost:3000")
+  CORS_ORIGIN: z.string().default("http://localhost:3000"),
+  LIVEKIT_URL: z.string().optional(),
+  LIVEKIT_API_KEY: z.string().optional(),
+  LIVEKIT_API_SECRET: z.string().optional()
 });
 
 export function loadEnv(env: NodeJS.ProcessEnv) {

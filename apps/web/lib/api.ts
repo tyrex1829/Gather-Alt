@@ -5,12 +5,16 @@ import { useAuthStore } from "../stores/auth";
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || "http://localhost:4000";
 const MAP_URL = process.env.NEXT_PUBLIC_MAP_URL || "http://localhost:4004";
 
-type Service = "gateway" | "map";
+const MEDIA_URL = process.env.NEXT_PUBLIC_MEDIA_URL || "http://localhost:4002";
+
+type Service = "gateway" | "map" | "media";
 
 let refreshRequest: Promise<string | null> | null = null;
 
 function getBaseUrl(service: Service) {
-  return service === "map" ? MAP_URL : GATEWAY_URL;
+  if (service === "map") return MAP_URL;
+  if (service === "media") return MEDIA_URL;
+  return GATEWAY_URL;
 }
 
 function shouldSkipRefresh(path: string) {
@@ -184,5 +188,29 @@ export async function createMap(data: {
     service: "map",
     method: "POST",
     body: JSON.stringify(data)
+  });
+}
+
+export async function updateMap(mapId: string, data: Partial<{
+  name: string;
+  width: number;
+  height: number;
+  tiles: any[][];
+  spawnPoint: { x: number; y: number };
+  rooms: any[];
+}>) {
+  return api(`/maps/${mapId}`, {
+    service: "map",
+    method: "PATCH",
+    body: JSON.stringify(data)
+  });
+}
+
+// Media
+export async function getMediaToken(mapId: string, name?: string) {
+  return api("/tokens", {
+    service: "media",
+    method: "POST",
+    body: JSON.stringify({ mapId, name })
   });
 }

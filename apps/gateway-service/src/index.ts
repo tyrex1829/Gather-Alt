@@ -546,6 +546,15 @@ async function createInvite(orgId: string, actorId: string, email: string, role:
     expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)
   });
 
+  const org = await OrganizationModel.findById(orgId).lean();
+  
+  await inviteQueue.add("send-invite", {
+    email: normalizedEmail,
+    inviteToken: rawToken,
+    orgName: org?.name || "An Organization",
+    role
+  });
+
   return { invite, rawToken };
 }
 

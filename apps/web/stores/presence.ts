@@ -14,15 +14,21 @@ type Player = {
 type PresenceState = {
   players: Map<string, Player>;
   localPosition: { x: number; y: number };
+  localDirection: string;
+  localIsSitting: boolean;
   setPlayers: (players: Player[]) => void;
   updatePlayer: (player: Partial<Player> & { userId: string }) => void;
   removePlayer: (userId: string) => void;
   setLocalPosition: (pos: { x: number; y: number }) => void;
+  setLocalDirection: (dir: string) => void;
+  setLocalIsSitting: (sitting: boolean) => void;
 };
 
 export const usePresenceStore = create<PresenceState>()((set) => ({
   players: new Map(),
   localPosition: { x: 1, y: 1 },
+  localDirection: "ArrowDown",
+  localIsSitting: false,
   setPlayers: (players) =>
     set({ players: new Map(players.map((p) => [p.userId, p])) }),
   updatePlayer: (update) =>
@@ -36,8 +42,9 @@ export const usePresenceStore = create<PresenceState>()((set) => ({
           name: "",
           position: { x: 0, y: 0 },
           status: "available",
+          isSitting: false,
           ...update
-        } as Player);
+        } as Player & { isSitting?: boolean });
       }
       return { players: next };
     }),
@@ -47,5 +54,7 @@ export const usePresenceStore = create<PresenceState>()((set) => ({
       next.delete(userId);
       return { players: next };
     }),
-  setLocalPosition: (pos) => set({ localPosition: pos })
+  setLocalPosition: (pos) => set({ localPosition: pos }),
+  setLocalDirection: (dir) => set({ localDirection: dir }),
+  setLocalIsSitting: (sitting) => set({ localIsSitting: sitting })
 }));

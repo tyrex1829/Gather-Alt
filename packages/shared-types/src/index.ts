@@ -115,12 +115,22 @@ export const PlayerStatusSchema = z.object({
   status: UserStatus
 });
 
+export const PlayerSitSchema = z.object({
+  mapId: z.string(),
+  chairId: z.string().optional()
+});
+
+export const PlayerStandSchema = z.object({
+  mapId: z.string()
+});
+
 export const PlayerStateSchema = z.object({
   userId: z.string(),
   name: z.string(),
   characterId: z.string().optional(),
   position: z.object({ x: z.number().int(), y: z.number().int() }),
-  status: UserStatus.default("available")
+  status: UserStatus.default("available"),
+  isSitting: z.boolean().default(false)
 });
 
 export const TokenPairSchema = z.object({

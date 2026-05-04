@@ -13,7 +13,9 @@ import {
   RoomJoinSchema,
   PlayerMoveSchema,
   ChatSendSchema,
-  PlayerStatusSchema
+  PlayerStatusSchema,
+  PlayerSitSchema,
+  PlayerStandSchema
 } from "@gather/shared-types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -322,6 +324,34 @@ io.on("connection", (socket) => {
       // Backward compatibility for existing clients.
       io.to(mapId).emit("player:status:changed", payload);
     }
+  });
+
+  socket.on("player:sit", (data) => {
+    const parsed = PlayerSitSchema.safeParse(data);
+    if (!parsed.success) return;
+    const { mapId, chairId } = parsed.data;
+
+    const room = roomState.get(mapId);
+    if (!room) return;
+    const player = room.get(user.userId);
+    if (!player) return;
+
+    player.isSitting = true;
+    io.to(mapId).emit("player:sat", { userId: user.userId, chairId });
+  });
+
+  socket.on("player:stand", (data) => {
+    const parsed = PlayerStandSchema.safeParse(data);
+    if (!parsed.success) return;
+    const { mapId } = parsed.data;
+
+    const room = roomState.get(mapId);
+    if (!room) return;
+    const player = room.get(user.userId);
+    if (!player) return;
+
+    player.isSitting = false;
+    io.to(mapId).emit("player:stood", { userId: user.userId });
   });
 
   socket.on("disconnect", () => {

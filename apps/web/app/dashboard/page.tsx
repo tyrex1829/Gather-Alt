@@ -10,6 +10,7 @@ import { TopBar } from "../../components/dashboard/TopBar";
 import { Sidebar } from "../../components/dashboard/Sidebar";
 import { MapCanvas } from "../../components/dashboard/MapCanvas";
 import { ChatPanel } from "../../components/dashboard/ChatPanel";
+import { MediaOverlay } from "../../components/dashboard/MediaOverlay";
 
 export default function DashboardPage() {
   const token = useAuthStore((s) => s.token);
@@ -53,9 +54,12 @@ export default function DashboardPage() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar onEnterMap={handleEnterMap} />
         <div className="flex flex-1">
-          <div className="flex-1">
+          <div className="flex-1 relative">
             {currentMapId ? (
-              <MapCanvas mapId={currentMapId} />
+              <>
+                <MapCanvas mapId={currentMapId} />
+                <MediaOverlay mapId={currentMapId} />
+              </>
             ) : (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">

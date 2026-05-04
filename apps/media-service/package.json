@@ -9,12 +9,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@gather/config": "*",
+    "@gather/utils": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "helmet": "^7.1.0",
-    "@gather/config": "*",
-    "@gather/utils": "*"
+    "livekit-server-sdk": "^2.15.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
